@@ -53,12 +53,43 @@
       uniform float colorScaleB;
       uniform bool invert;
 
+      // Gaussian Filter
+      uniform int gaussianFilter;
+      uniform int laplacianFilter;
+      uniform int kernelSize;
+      uniform float sigma;
+
       out vec4 out_FragColor;
 
       void main(void) {
+        vec4 leftImageTexture;
+        vec4 rightImageTexture;
+        
+        vec2 texCoordLeft = vec2(gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
+        vec2 texCoordRight = vec2(imageWidth / 2. + gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
+        float gaussianTotal;
+        float pi = 3.1415926535897932384626433832795;
+        float lp = 1.0 / (2.0 * pi * sigma * sigma);
+        float rp = 1.0 / (2.0 * sigma * sigma);
+        int halfKernelSize = kernelSize / 2;
+        
+        for (int i = -halfKernelSize; i <= halfKernelSize; i++) {
+          for (int j = -halfKernelSize; j <= halfKernelSize; j++) {
+            vec2 offset = vec2(float(i), float(j));
+            float gaussianVal = lp * exp(-dot(offset, offset) * rp);
+            gaussianTotal += gaussianVal;
 
-        vec4 leftImageTexture = texelFetch(image, ivec2(int(gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
-        vec4 rightImageTexture = texelFetch(image, ivec2(int(imageWidth / 2. + gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
+            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
+            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
+          }
+        }
+        if (gaussianFilter == 1) {
+          leftImageTexture = leftImageTexture / gaussianTotal;
+          rightImageTexture = rightImageTexture / gaussianTotal;
+        } else {
+          leftImageTexture = texelFetch(image, ivec2(int(gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
+          rightImageTexture = texelFetch(image, ivec2(int(imageWidth / 2. + gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
+        }
 
         vec3 rgb1 = vec3(leftImageTexture.r, leftImageTexture.g, leftImageTexture.b);
         vec3 rgb2 = vec3(rightImageTexture.r, rightImageTexture.g, rightImageTexture.b);
@@ -114,11 +145,11 @@
             break;
         }
 
-        //out_FragColor = vec4(anaglyphsImg, 1.0);
         out_FragColor = vec4(vec3(colorScaleR, colorScaleG, colorScaleB), 1.0) * vec4(anaglyphsImg, 1.0);
+
         if (invert)
         {
-          out_FragColor = vec4(1,1,1,0) - out_FragColor;
+          out_FragColor = vec4(1, 1, 1, 0) - out_FragColor;
           out_FragColor.a = 1.0;
         }
       }
@@ -272,7 +303,10 @@
             image: { type: "t", value: videoTexture },
             imageWidth: { type: "f", value: video.videoWidth },
             anaglyphsMethods: { type: "i", value: anaglyphMethods.indexOf(anaglyphMethodsObj.anaglyph) },
-
+            gaussianFilter: { type: "i", value: 0 },
+            laplacianFilter: { type: "i", value: 0 },
+            kernelSize: { type: "i", value: 3 },
+            sigma: { type: "f", value: .6 },
           },
           vertexShader: document.getElementById("vertShader").text,
           fragmentShader: document.getElementById("fragShader").text,
@@ -349,6 +383,38 @@
           .name("Anaglyphs")
           .onChange(value => {
             imageProcessingMaterial.uniforms.anaglyphsMethods.value = anaglyphMethods.indexOf(value);
+          });
+
+        const gaussianFilterFolder = gui.addFolder("Gaussian Filter");
+        const gaussianFilterObj = {
+          gaussianFilter: false,
+          laplacianFilter: false,
+          kernelSize: 1,
+          sigma: 0.6,
+        }
+        gaussianFilterFolder
+          .add(gaussianFilterObj, "gaussianFilter")
+          .name("Enabled")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.gaussianFilter.value = value ? 1 : 0;
+          });
+        gaussianFilterFolder
+          .add(gaussianFilterObj, "laplacianFilter")
+          .name("Laplacian Filter")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.laplacianFilter.value = value ? 1 : 0;
+          });
+        gaussianFilterFolder
+          .add(imageProcessingMaterial.uniforms.kernelSize, "value", 3, 21, 1)
+          .name("Kernel Size")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.kernelSize.value = value;
+          });
+        gaussianFilterFolder
+          .add(gaussianFilterObj, "sigma", 0.1, 10)
+          .name("Sigma")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.sigma.value = value;
           });
         gui.add(pausePlayObj, "pausePlay").name("Pause/play video");
         gui.add(pausePlayObj, "add10sec").name("Add 10 seconds");
