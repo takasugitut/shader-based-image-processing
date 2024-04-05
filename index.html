@@ -41,157 +41,246 @@
     </script>
 
   <script id="fragShader" type="shader">
-      precision highp float;
+    precision highp float;
 
-      uniform sampler2D image;
-      uniform float imageWidth;
-      uniform int anaglyphsMethods;
-      vec3 anaglyphsImg;
+    uniform sampler2D image;
+    uniform float imageWidth;
+    uniform float imageHeight;
+    uniform int anaglyphsMethods;
+    vec3 anaglyphsImg;
 
-      uniform float colorScaleR;
-      uniform float colorScaleG;
-      uniform float colorScaleB;
-      uniform bool invert;
+    uniform float colorScaleR;
+    uniform float colorScaleG;
+    uniform float colorScaleB;
+    uniform bool invert;
 
-      // Gaussian Filter
-      uniform int gaussianFilter;
-      uniform int kernelSize;
-      uniform float sigma;
+    // Gaussian Filter
+    uniform int gaussianFilter;
+    uniform int gaussianKernelSize;
+    uniform float gaussianSigma;
 
-      // Laplacian Filter
-      uniform int laplacianFilter;
-      float laplacianKernel[9] = float[](
-        0.0, -1.0, 0.0,
-        -1.0, 4.0, -1.0,
-        0.0, -1.0, 0.0
-      );
+    // Laplacian Filter
+    uniform int laplacianFilter;
+    float laplacianKernel[9] = float[](
+      0.0, -1.0, 0.0,
+      -1.0, 4.0, -1.0,
+      0.0, -1.0, 0.0
+    );
 
-      // Output Fragment Color
-      out vec4 out_FragColor;
+    // Separable Filter
+    uniform int separableFilter;
+    uniform int separableKernelSize;
+    uniform float separableSigma;
+    
+    vec4 applySeparableHorizontalFilter(sampler2D image, vec2 texCoord, int kernelSize) {
+      float gaussianTotal = 0.0;
+      float pi = 3.1415926535897932384626433832795;
+      float lp = 1.0 / (2.0 * pi * separableSigma * separableSigma);
+      float rp = 1.0 / (2.0 * separableSigma * separableSigma);
+      int halfKernelSize = kernelSize / 2;
 
-      void main(void) {
-        vec4 leftImageTexture;
-        vec4 rightImageTexture;
-        
-        vec2 texCoordLeft = vec2(gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
-        vec2 texCoordRight = vec2(imageWidth / 2.0 + gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
-        
-        float laplacianTotal;
-        
-        if (gaussianFilter == 1) {
-          float gaussianTotal;
-          float pi = 3.1415926535897932384626433832795;
-          float lp = 1.0 / (2.0 * pi * sigma * sigma);
-          float rp = 1.0 / (2.0 * sigma * sigma);
-          int halfKernelSize = kernelSize / 2;
+      vec4 color = vec4(0.0);
 
-          for (int i = -halfKernelSize; i <= halfKernelSize; i++) {
-            for (int j = -halfKernelSize; j <= halfKernelSize; j++) {
-              vec2 offset = vec2(float(i), float(j));
-              float gaussianVal = lp * exp(-dot(offset, offset) * rp);
-              gaussianTotal += gaussianVal;
+      for (int i = -halfKernelSize; i <= halfKernelSize; ++i) {
+        vec2 offset = vec2(float(i), 0.0);
+        float gaussianVal = lp * exp(-dot(offset, offset) * rp);
+        gaussianTotal += gaussianVal;
 
-              leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
-              rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
-            }
-          }
-          
-          leftImageTexture = leftImageTexture / gaussianTotal;
-          rightImageTexture = rightImageTexture / gaussianTotal;
-        } 
+        color += texture(image, texCoord + vec2(float(i) / imageWidth, 0.0)) * gaussianVal;
+      }
+      return color / gaussianTotal;
+    }
+    
+    vec4 applySeparableVerticalFilter(vec4 horizontalFilteredColor, vec2 texCoord, int kernelSize) {
+      float gaussianTotal = 0.0;
+      float pi = 3.1415926535897932384626433832795;
+      float lp = 1.0 / (2.0 * pi * separableSigma * separableSigma);
+      float rp = 1.0 / (2.0 * separableSigma * separableSigma);
+      int halfKernelSize = kernelSize / 2;
 
-        if (laplacianFilter == 1) {
-          float laplacianTotal;
-          vec3 laplacianLeft = vec3(0.0);
-          vec3 laplacianRight = vec3(0.0);
+      vec4 color = vec4(0.0);
 
-          for (int i = -1; i <= 1; i++) {
-            for (int j = -1; j <= 1; j++) {
-              vec2 offset = vec2(float(i), float(j));
-              float laplacianVal;
-              
-              if (i == 0 && j == 0) {
-                laplacianVal = 4.0;
-              } else if (i == 0 || j == 0) {
-                laplacianVal = -1.0;
-              } else {
-                laplacianVal = 0.0;
-              }
+      for (int i = -halfKernelSize; i <= halfKernelSize; ++i) {
+          vec2 offset = vec2(0.0, float(i));
+          float gaussianVal = lp * exp(-dot(offset, offset) * rp);
+          gaussianTotal += gaussianVal;
 
-              leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
-              rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
-            }
-          }
-        }
-
-        if (gaussianFilter == 0 && laplacianFilter == 0) {
-          leftImageTexture = texelFetch(image, ivec2(int(gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
-          rightImageTexture = texelFetch(image, ivec2(int(imageWidth / 2. + gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
-        }
-
-        vec3 rgb1 = vec3(leftImageTexture.r, leftImageTexture.g, leftImageTexture.b);
-        vec3 rgb2 = vec3(rightImageTexture.r, rightImageTexture.g, rightImageTexture.b);
-
-        vec3 trueAnaglyphs = vec3(
-          0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
-          0,
-          0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b
-        );
-
-        vec3 grayAnaglyphs = vec3(
-          0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
-          0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b,
-          0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b
-        );
-
-        vec3 colorAnaglyphs = vec3(
-          rgb1.r,
-          rgb2.g,
-          rgb2.b
-        );
-
-        vec3 halfColorAnaglyphs = vec3(
-          0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
-          rgb2.g,
-          rgb2.b
-        );
-
-        vec3 optimizedAnaglyphs = vec3(
-          0.7 * rgb1.g + 0.3 * rgb1.b,
-          rgb2.g,
-          rgb2.b
-        );
-
-        switch(anaglyphsMethods) {
-          case 1:
-            anaglyphsImg = trueAnaglyphs;
-            break;
-          case 2:
-            anaglyphsImg = grayAnaglyphs;
-            break;
-          case 3:
-            anaglyphsImg = colorAnaglyphs;
-            break;
-          case 4:
-            anaglyphsImg = halfColorAnaglyphs;
-            break;
-          case 5:
-            anaglyphsImg = optimizedAnaglyphs;
-            break;
-          default:
-            anaglyphsImg = rgb1;
-            break;
-        }
-
-        out_FragColor = vec4(vec3(colorScaleR, colorScaleG, colorScaleB), 1.0) * vec4(anaglyphsImg, 1.0);
-
-        if (invert)
-        {
-          out_FragColor = vec4(1, 1, 1, 0) - out_FragColor;
-          out_FragColor.a = 1.0;
+          color += horizontalFilteredColor * gaussianVal;
+      }
+      return color / gaussianTotal;
+    }
+    
+    // Median Filter
+    uniform int medianFilter;
+    uniform int medianKernelSize;
+    vec4 applyMedianFilter(sampler2D image, vec2 texCoord, int kernelSize) {
+      int halfKernelSize = kernelSize / 2;
+      vec3 colors[49]; // Equal kernelSize * kernelSize
+    
+      int index = 0;
+      for (int i = -halfKernelSize; i <= halfKernelSize; i++) {
+        for (int j = -halfKernelSize; j <= halfKernelSize; j++) {
+          vec2 offset = vec2(float(i), float(j));
+          vec4 color = texture(image, texCoord + offset / vec2(imageWidth, textureSize(image, 0).y));
+          colors[index] = color.rgb;
+          index++;
         }
       }
-    </script>
+    
+      // Sort the colors array and get the median value
+      for (int i = 0; i < kernelSize * kernelSize; i++) {
+        for (int j = i + 1; j < kernelSize * kernelSize; j++) {
+          if (length(colors[i]) > length(colors[j])) {
+            vec3 temp = colors[i];
+            colors[i] = colors[j];
+            colors[j] = temp;
+          }
+        }
+      }
+    
+      return vec4(colors[(kernelSize * kernelSize) / 2], 1.0); // The median value
+    }
+
+    // Output Fragment Color
+    out vec4 out_FragColor;
+
+    void main(void) {
+      vec4 leftImageTexture;
+      vec4 rightImageTexture;
+      
+      vec2 texCoordLeft = vec2(gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
+      vec2 texCoordRight = vec2(imageWidth / 2.0 + gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
+      
+      float laplacianTotal;
+      
+      if (gaussianFilter == 1) {
+        float gaussianTotal = 0.0;
+        float pi = 3.1415926535897932384626433832795;
+        float lp = 1.0 / (2.0 * pi * gaussianSigma * gaussianSigma);
+        float rp = 1.0 / (2.0 * gaussianSigma * gaussianSigma);
+        int halfKernelSize = gaussianKernelSize / 2;
+
+        for (int i = -halfKernelSize; i <= halfKernelSize; i++) {
+          for (int j = -halfKernelSize; j <= halfKernelSize; j++) {
+            vec2 offset = vec2(float(i), float(j));
+            float gaussianVal = lp * exp(-dot(offset, offset) * rp);
+            gaussianTotal += gaussianVal;
+
+            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
+            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
+          }
+        }
+        
+        leftImageTexture = leftImageTexture / gaussianTotal;
+        rightImageTexture = rightImageTexture / gaussianTotal;
+      } 
+
+      if (laplacianFilter == 1) {
+        float laplacianTotal;
+
+        for (int i = -1; i <= 1; i++) {
+          for (int j = -1; j <= 1; j++) {
+            vec2 offset = vec2(float(i), float(j));
+            float laplacianVal;
+            
+            if (i == 0 && j == 0) {
+              laplacianVal = 4.0;
+            } else if (i == 0 || j == 0) {
+              laplacianVal = -1.0;
+            } else {
+              laplacianVal = 0.0;
+            }
+
+            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
+            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
+          }
+        }
+      }
+
+      if (medianFilter == 1) {
+        leftImageTexture = applyMedianFilter(image, texCoordLeft, medianKernelSize);
+        rightImageTexture = applyMedianFilter(image, texCoordRight, medianKernelSize);
+      }
+
+      if (gaussianFilter == 0 && laplacianFilter == 0) {
+        leftImageTexture = texelFetch(image, ivec2(int(gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
+        rightImageTexture = texelFetch(image, ivec2(int(imageWidth / 2. + gl_FragCoord.x / 2.), int(gl_FragCoord.y)), 0);
+      }
+
+      vec3 rgb1 = vec3(leftImageTexture.r, leftImageTexture.g, leftImageTexture.b);
+      vec3 rgb2 = vec3(rightImageTexture.r, rightImageTexture.g, rightImageTexture.b);
+
+      vec3 trueAnaglyphs = vec3(
+        0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
+        0,
+        0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b
+      );
+
+      vec3 grayAnaglyphs = vec3(
+        0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
+        0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b,
+        0.299 * rgb2.r + 0.578 * rgb2.g + 0.114 * rgb2.b
+      );
+
+      vec3 colorAnaglyphs = vec3(
+        rgb1.r,
+        rgb2.g,
+        rgb2.b
+      );
+
+      vec3 halfColorAnaglyphs = vec3(
+        0.299 * rgb1.r + 0.578 * rgb1.g + 0.114 * rgb1.b,
+        rgb2.g,
+        rgb2.b
+      );
+
+      vec3 optimizedAnaglyphs = vec3(
+        0.7 * rgb1.g + 0.3 * rgb1.b,
+        rgb2.g,
+        rgb2.b
+      );
+
+      switch(anaglyphsMethods) {
+        case 1:
+          anaglyphsImg = trueAnaglyphs;
+          break;
+        case 2:
+          anaglyphsImg = grayAnaglyphs;
+          break;
+        case 3:
+          anaglyphsImg = colorAnaglyphs;
+          break;
+        case 4:
+          anaglyphsImg = halfColorAnaglyphs;
+          break;
+        case 5:
+          anaglyphsImg = optimizedAnaglyphs;
+          break;
+        default:
+          anaglyphsImg = rgb1;
+          break;
+      }
+
+      if (separableFilter == 1) {
+        // Apply horizontal Gaussian filtering
+        vec4 horizontalFilteredColor = applySeparableHorizontalFilter(image, texCoordLeft, separableKernelSize);
+        
+        // Apply vertical Gaussian filtering
+        vec4 verticalFilteredColor = applySeparableVerticalFilter(horizontalFilteredColor, texCoordLeft, separableKernelSize);
+
+        out_FragColor = verticalFilteredColor;
+
+      } else {
+        out_FragColor = vec4(vec3(colorScaleR, colorScaleG, colorScaleB), 1.0) * vec4(anaglyphsImg, 1.0);
+      }
+
+      if (invert)
+      {
+        out_FragColor = vec4(1, 1, 1, 0) - out_FragColor;
+        out_FragColor.a = 1.0;
+      }
+    }
+  </script>
 
   <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
   <script type="importmap">
@@ -340,11 +429,17 @@
             invert: { type: "b", value: false },
             image: { type: "t", value: videoTexture },
             imageWidth: { type: "f", value: video.videoWidth },
+            imageHeight: { type: "f", value: video.videoHeight },
             anaglyphsMethods: { type: "i", value: anaglyphMethods.indexOf(anaglyphMethodsObj.anaglyph) },
             gaussianFilter: { type: "i", value: 0 },
+            gaussianKernelSize: { type: "i", value: 3 },
+            gaussianSigma: { type: "f", value: .6 },
             laplacianFilter: { type: "i", value: 0 },
-            kernelSize: { type: "i", value: 3 },
-            sigma: { type: "f", value: .6 },
+            medianFilter: { type: "i", value: 0 },
+            medianKernelSize: { type: "i", value: 3 },
+            separableFilter: { type: "i", value: 0 },
+            separableKernelSize: { type: "i", value: 3 },
+            separableSigma: { type: "f", value: .6 },
           },
           vertexShader: document.getElementById("vertShader").text,
           fragmentShader: document.getElementById("fragShader").text,
@@ -373,19 +468,19 @@
         plan.castShadow = false;
         scene.add(plan);
 
-        var geometry = new THREE.PlaneGeometry(
-          1,
-          video.videoHeight / video.videoWidth
-        );
-        var material = new THREE.MeshBasicMaterial({
-          map: videoTexture,
-          side: THREE.DoubleSide,
-        });
-        plan = new THREE.Mesh(geometry, material);
-        plan.position.z = -0.5;
-        plan.receiveShadow = false;
-        plan.castShadow = false;
-        scene.add(plan);
+        // var geometry = new THREE.PlaneGeometry(
+        //   1,
+        //   video.videoHeight / video.videoWidth
+        // );
+        // var material = new THREE.MeshBasicMaterial({
+        //   map: videoTexture,
+        //   side: THREE.DoubleSide,
+        // });
+        // plan = new THREE.Mesh(geometry, material);
+        // plan.position.z = -0.5;
+        // plan.receiveShadow = false;
+        // plan.castShadow = false;
+        // scene.add(plan);
 
         var pausePlayObj = {
           pausePlay: function () {
@@ -423,41 +518,93 @@
             imageProcessingMaterial.uniforms.anaglyphsMethods.value = anaglyphMethods.indexOf(value);
           });
 
-        const gaussianFilterFolder = gui.addFolder("Gaussian Filter");
-        const gaussianFilterObj = {
+        const convolutionFolder = gui.addFolder("Convolution");
+        const convolutionObj = {
           gaussianFilter: false,
           laplacianFilter: false,
-          kernelSize: 3,
-          sigma: 0.6,
+          gaussianKernelSize: 3,
+          gaussianSigma: 0.6,
         }
-        gaussianFilterFolder
-          .add(gaussianFilterObj, "gaussianFilter")
-          .name("Enabled")
+        convolutionFolder
+          .add(convolutionObj, "gaussianFilter")
+          .name("Gaussian Filter")
           .onChange(value => {
             imageProcessingMaterial.uniforms.gaussianFilter.value = value ? 1 : 0;
           });
-        gaussianFilterFolder
-          .add(gaussianFilterObj, "laplacianFilter")
+        convolutionFolder
+          .add(convolutionObj, "laplacianFilter")
           .name("Laplacian Filter")
           .onChange(value => {
             imageProcessingMaterial.uniforms.laplacianFilter.value = value ? 1 : 0;
           });
-        gaussianFilterFolder
-          .add(imageProcessingMaterial.uniforms.kernelSize, "value", 3, 21, 2)
+        convolutionFolder
+          .add(imageProcessingMaterial.uniforms.gaussianKernelSize, "value", 3, 21, 2)
           .name("Kernel Size")
           .onChange(value => {
             if (value % 2 === 0) {
-              imageProcessingMaterial.uniforms.kernelSize.value = value - 1;
+              imageProcessingMaterial.uniforms.gaussianKernelSize.value = value - 1;
             } else {
-              imageProcessingMaterial.uniforms.kernelSize.value = value;
+              imageProcessingMaterial.uniforms.gaussianKernelSize.value = value;
             }
           });
-        gaussianFilterFolder
-          .add(gaussianFilterObj, "sigma", 0.1, 10)
+        convolutionFolder
+          .add(convolutionObj, "gaussianSigma", 0.1, 10)
           .name("Sigma")
           .onChange(value => {
-            imageProcessingMaterial.uniforms.sigma.value = value;
+            imageProcessingMaterial.uniforms.gaussianSigma.value = value;
           });
+
+        const denoisingFolder = gui.addFolder("Denoising");
+        const denoisingObj = {
+          medianFilter: false,
+          medianKernelSize: 3,
+        }
+        denoisingFolder
+          .add(denoisingObj, "medianFilter")
+          .name("Median Filter")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.medianFilter.value = value ? 1 : 0;
+          });
+        denoisingFolder
+          .add(imageProcessingMaterial.uniforms.medianKernelSize, "value", 3, 7, 2)
+          .name("Kernel Size")
+          .onChange(value => {
+            if (value % 2 === 0) {
+              imageProcessingMaterial.uniforms.medianKernelSize.value = value - 1;
+            } else {
+              imageProcessingMaterial.uniforms.medianKernelSize.value = value;
+            }
+          });
+
+        const separableFolder = gui.addFolder("Separable Filter");
+        const separableObj = {
+          separableFilter: false,
+          separableKernelSize: 3,
+          separableSigma: 0.6,
+        }
+        separableFolder
+          .add(separableObj, "separableFilter")
+          .name("Separable Filter")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.separableFilter.value = value ? 1 : 0;
+          });
+        separableFolder
+          .add(imageProcessingMaterial.uniforms.separableKernelSize, "value", 3, 21, 2)
+          .name("Kernel Size")
+          .onChange(value => {
+            if (value % 2 === 0) {
+              imageProcessingMaterial.uniforms.separableKernelSize.value = value - 1;
+            } else {
+              imageProcessingMaterial.uniforms.separableKernelSize.value = value;
+            }
+          });
+          separableFolder
+          .add(convolutionObj, "gaussianSigma", 0.1, 10)
+          .name("Sigma")
+          .onChange(value => {
+            imageProcessingMaterial.uniforms.separableSigma.value = value;
+          });
+
         gui.add(pausePlayObj, "pausePlay").name("Pause/play video");
         gui.add(pausePlayObj, "add10sec").name("Add 10 seconds");
 
