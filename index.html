@@ -120,17 +120,17 @@
       int index = 0;
       for (int i = -halfKernelSize; i <= halfKernelSize; i++) {
         for (int j = -halfKernelSize; j <= halfKernelSize; j++) {
-          vec2 offset = vec2(float(i), float(j));
-          vec4 color = texture(image, texCoord + offset / vec2(imageWidth, textureSize(image, 0).y));
-          colors[index] = color.rgb;
-          index++;
+            vec2 offset = vec2(float(i), float(j));
+            vec4 color = texture(image, texCoord + offset / vec2(imageWidth, imageHeight));
+            colors[index] = color.rgb;
+            index++;
         }
       }
     
       // Sort the colors array and get the median value
       for (int i = 0; i < kernelSize * kernelSize; i++) {
         for (int j = i + 1; j < kernelSize * kernelSize; j++) {
-          if (length(colors[i]) > length(colors[j])) {
+          if (dot(colors[i], vec3(0.299, 0.587, 0.114)) > dot(colors[j], vec3(0.299, 0.587, 0.114))) {
             vec3 temp = colors[i];
             colors[i] = colors[j];
             colors[j] = temp;
@@ -138,7 +138,7 @@
         }
       }
     
-      return vec4(colors[(kernelSize * kernelSize) / 2], 1.0); // The median value
+      return vec4(colors[(kernelSize * kernelSize) / 2], 1.0);
     }
 
     // Output Fragment Color
@@ -148,8 +148,8 @@
       vec4 leftImageTexture;
       vec4 rightImageTexture;
       
-      vec2 texCoordLeft = vec2(gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
-      vec2 texCoordRight = vec2(imageWidth / 2.0 + gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, textureSize(image, 0).y);
+      vec2 texCoordLeft = vec2(gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, imageHeight);
+      vec2 texCoordRight = vec2(imageWidth / 2.0 + gl_FragCoord.x / 2.0, gl_FragCoord.y) / vec2(imageWidth, imageHeight);
       
       float laplacianTotal;
       
@@ -166,8 +166,8 @@
             float gaussianVal = lp * exp(-dot(offset, offset) * rp);
             gaussianTotal += gaussianVal;
 
-            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
-            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * gaussianVal;
+            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, imageHeight)) * gaussianVal;
+            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, imageHeight)) * gaussianVal;
           }
         }
         
@@ -191,8 +191,8 @@
               laplacianVal = 0.0;
             }
 
-            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
-            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, textureSize(image, 0).y)) * laplacianVal;
+            leftImageTexture += texture(image, texCoordLeft + offset / vec2(imageWidth, imageHeight)) * laplacianVal;
+            rightImageTexture += texture(image, texCoordRight + offset / vec2(imageWidth, imageHeight)) * laplacianVal;
           }
         }
       }
