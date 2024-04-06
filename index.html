@@ -43,6 +43,7 @@
   <script id="fragShader" type="shader">
     precision highp float;
 
+    #define PI 3.1415926535897932384626433832795
     uniform sampler2D image;
     uniform float imageWidth;
     uniform float imageHeight;
@@ -74,8 +75,7 @@
     
     vec4 applySeparableHorizontalFilter(sampler2D image, vec2 texCoord, int kernelSize) {
       float gaussianTotal = 0.0;
-      float pi = 3.1415926535897932384626433832795;
-      float lp = 1.0 / (2.0 * pi * separableSigma * separableSigma);
+      float lp = 1.0 / (2.0 * PI * separableSigma * separableSigma);
       float rp = 1.0 / (2.0 * separableSigma * separableSigma);
       int halfKernelSize = kernelSize / 2;
 
@@ -91,10 +91,9 @@
       return color / gaussianTotal;
     }
     
-    vec4 applySeparableVerticalFilter(vec4 horizontalFilteredColor, vec2 texCoord, int kernelSize) {
+    vec4 applySeparableVerticalFilter(sampler2D image, vec2 texCoord, int kernelSize) {
       float gaussianTotal = 0.0;
-      float pi = 3.1415926535897932384626433832795;
-      float lp = 1.0 / (2.0 * pi * separableSigma * separableSigma);
+      float lp = 1.0 / (2.0 * PI * separableSigma * separableSigma);
       float rp = 1.0 / (2.0 * separableSigma * separableSigma);
       int halfKernelSize = kernelSize / 2;
 
@@ -105,7 +104,7 @@
           float gaussianVal = lp * exp(-dot(offset, offset) * rp);
           gaussianTotal += gaussianVal;
 
-          color += horizontalFilteredColor * gaussianVal;
+          color += texture(image, texCoord + vec2(0.0, float(i) / imageHeight)) * gaussianVal;
       }
       return color / gaussianTotal;
     }
@@ -155,8 +154,7 @@
       
       if (gaussianFilter == 1) {
         float gaussianTotal = 0.0;
-        float pi = 3.1415926535897932384626433832795;
-        float lp = 1.0 / (2.0 * pi * gaussianSigma * gaussianSigma);
+        float lp = 1.0 / (2.0 * PI * gaussianSigma * gaussianSigma);
         float rp = 1.0 / (2.0 * gaussianSigma * gaussianSigma);
         int halfKernelSize = gaussianKernelSize / 2;
 
@@ -266,10 +264,9 @@
         vec4 horizontalFilteredColor = applySeparableHorizontalFilter(image, texCoordLeft, separableKernelSize);
         
         // Apply vertical Gaussian filtering
-        vec4 verticalFilteredColor = applySeparableVerticalFilter(horizontalFilteredColor, texCoordLeft, separableKernelSize);
+        //vec4 verticalFilteredColor = applySeparableVerticalFilter(image, texCoordLeft, separableKernelSize);
 
-        out_FragColor = verticalFilteredColor;
-
+        out_FragColor = horizontalFilteredColor;
       } else {
         out_FragColor = vec4(vec3(colorScaleR, colorScaleG, colorScaleB), 1.0) * vec4(anaglyphsImg, 1.0);
       }
@@ -278,6 +275,57 @@
       {
         out_FragColor = vec4(1, 1, 1, 0) - out_FragColor;
         out_FragColor.a = 1.0;
+      }
+    }
+  </script>
+
+  <script id="fragShader2" type="shader">
+    precision highp float;
+
+    uniform sampler2D image;
+    uniform float imageWidth;
+    uniform float imageHeight;
+
+    #define PI 3.1415926535897932384626433832795
+
+    // Separable Filter
+    uniform int separableFilter;
+    uniform int separableKernelSize;
+    uniform float separableSigma;
+
+    vec4 applySeparableVerticalFilter(sampler2D image, vec2 texCoord, int kernelSize) {
+      float gaussianTotal = 0.0;
+      float lp = 1.0 / (2.0 * PI * separableSigma * separableSigma);
+      float rp = 1.0 / (2.0 * separableSigma * separableSigma);
+      int halfKernelSize = kernelSize / 2;
+
+      vec4 color = vec4(0.0);
+
+      for (int i = -halfKernelSize; i <= halfKernelSize; ++i) {
+          vec2 offset = vec2(0.0, float(i));
+          float gaussianVal = lp * exp(-dot(offset, offset) * rp);
+          gaussianTotal += gaussianVal;
+
+          color += texture(image, texCoord + vec2(0.0, float(i) / imageHeight)) * gaussianVal;
+      }
+      return color / gaussianTotal;
+    }
+
+    // Output Fragment Color
+    out vec4 out_FragColor;
+
+    void main(void) {
+      vec4 leftImageTexture;
+      vec4 rightImageTexture;
+
+      vec2 texCoord = vec2(gl_FragCoord.x, gl_FragCoord.y) / vec2(imageWidth, imageHeight);
+
+      if (separableFilter == 1) {
+        vec4 verticalFilteredColor = applySeparableVerticalFilter(image, texCoord, separableKernelSize);
+
+        out_FragColor = verticalFilteredColor;
+      } else {
+        out_FragColor = texelFetch(image, ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y)), 0);
       }
     }
   </script>
@@ -361,6 +409,7 @@
     // VIDEO AND THE ASSOCIATED TEXTURE
     var video, videoTexture;
     var imageProcessing, imageProcessingMaterial;
+    var imageProcessing2, imageProcessingMaterial2;
 
     // GUI
     var gui;
@@ -452,14 +501,34 @@
           imageProcessingMaterial
         );
 
-        console.log(imageProcessing.width);
+        imageProcessingMaterial2 = new THREE.RawShaderMaterial({
+          uniforms: {
+            image: { type: "t", value: imageProcessing.rtt.texture },
+            imageWidth: { type: "f", value: video.videoWidth },
+            imageHeight: { type: "f", value: video.videoHeight },
+            separableFilter: { type: "i", value: 0 },
+            separableKernelSize: { type: "i", value: 3 },
+            separableSigma: { type: "f", value: .6 },
+          },
+          vertexShader: document.getElementById("vertShader").text,
+          fragmentShader: document.getElementById("fragShader2").text,
+          glslVersion: THREE.GLSL3,
+        });
+
+        imageProcessing2 = new IVimageProcessing(
+          video.videoHeight,
+          video.videoWidth,
+          imageProcessingMaterial2
+        );
+
+        console.log(imageProcessing2.width);
 
         var geometry = new THREE.PlaneGeometry(
           1,
           video.videoHeight / video.videoWidth
         );
         var material = new THREE.MeshBasicMaterial({
-          map: imageProcessing.rtt.texture,
+          map: imageProcessing2.rtt.texture,
           side: THREE.DoubleSide,
         });
 
@@ -587,6 +656,7 @@
           .name("Separable Filter")
           .onChange(value => {
             imageProcessingMaterial.uniforms.separableFilter.value = value ? 1 : 0;
+            imageProcessingMaterial2.uniforms.separableFilter.value = value ? 1 : 0;
           });
         separableFolder
           .add(imageProcessingMaterial.uniforms.separableKernelSize, "value", 3, 21, 2)
@@ -594,8 +664,10 @@
           .onChange(value => {
             if (value % 2 === 0) {
               imageProcessingMaterial.uniforms.separableKernelSize.value = value - 1;
+              imageProcessingMaterial2.uniforms.separableKernelSize.value = value - 1;
             } else {
               imageProcessingMaterial.uniforms.separableKernelSize.value = value;
+              imageProcessingMaterial2.uniforms.separableKernelSize.value = value;
             }
           });
           separableFolder
@@ -603,6 +675,7 @@
           .name("Sigma")
           .onChange(value => {
             imageProcessingMaterial.uniforms.separableSigma.value = value;
+            imageProcessingMaterial2.uniforms.separableSigma.value = value;
           });
 
         gui.add(pausePlayObj, "pausePlay").name("Pause/play video");
@@ -618,6 +691,9 @@
       renderer.clear();
       if (typeof imageProcessing !== "undefined") {
         IVprocess(imageProcessing, renderer);
+      }
+      if (typeof imageProcessing2 !== "undefined") {
+        IVprocess(imageProcessing2, renderer);
       }
       renderer.render(scene, camera);
     }
